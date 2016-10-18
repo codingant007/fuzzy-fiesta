@@ -13,8 +13,6 @@ from theano.tensor.signal import pool
 from theano.tensor.nnet import conv2d
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
-from logistic_sgd import LogisticRegression
-import loadNist
 from mlp import HiddenLayer
 
 srng = RandomStreams() 

@@ -34,7 +34,7 @@ import theano
 import theano.tensor as T
 
 
-from logistic_sgd import LogisticRegression
+from logistic_regression import LogisticRegression
 
 
 # Train hidden layer

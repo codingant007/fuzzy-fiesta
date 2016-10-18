@@ -1,4 +1,6 @@
 import sys
+import timeit
+import six.moves.cPickle as pickle
 
 import numpy as np
 
@@ -13,6 +15,7 @@ from logistic_regression import LogisticRegression, classificationErrors, logist
 from mlp import HiddenLayer, hiddenLayerTest
 from conv_pool import ConvPoolLayer, convPoolLayerTest
 from sampleLoader import SampleLoader
+from paramDataManager import ParamDataManager
 
 
 def evaluate_cnn(image_shape=[32],
@@ -20,7 +23,7 @@ def evaluate_cnn(image_shape=[32],
                     nkerns=[64, 128], 
                     filter_shapes=[5, 5],
                     hidden_layer=[1024],
-                    outputs=52,
+                    outputs=10,
                     pools=[2, 2],
                     dropouts=[0.1, 0.25, 0.5],
                     learning_rate=0.1,
@@ -28,7 +31,7 @@ def evaluate_cnn(image_shape=[32],
                     n_epochs=2000,
                     minibatch_size=64):
     
-    rng = np.random.RandonState(12345)
+    rng = np.random.RandomState(12345)
 
     # calculate shapes at each CNN layer
     for i in range(len(filter_shapes)):
@@ -43,16 +46,12 @@ def evaluate_cnn(image_shape=[32],
                 (hidden_layer[0], outputs)]
 
     # load parameters
-    paramDataAddress_base = str(image_shape + [channels] + nkerns + 
-        filter_shapes + hidden_layer + [outputs] + pools + dropouts + 
-        [momentum] + [learning_rate] + [n_epochs] + [batch_size])
-    paramDataAddress1 = 'params/param_' + paramDataAddress_base
-    paramDataAddress2 = 'params/param_' + paramDataAddress_base
+    paramDataManager = ParamDataManager(image_shape, channels, nkerns, filter_shapes, hidden_layer, outputs, pools, dropouts, momentum, learning_rate, n_epochs, minibatch_size)
     toLoadParameters = False # Not loading parameters now
     toSaveParameters = True
     paramData = [None]*8
     if toLoadParameters:
-        paramData, shapeData = loadNist.loadData(paramDataAddress1)
+        paramData, shapeData = paramDataManager.loadData(paramDataAddress)
         shapeMatched = True
         for i in range(len(shapes)):
             if(shapes[-i-1] != shapeData[2*i]):
@@ -64,13 +63,21 @@ def evaluate_cnn(image_shape=[32],
                 print('... Data loaded for layer %d ...' % i)
         if(shapeMatched == False):
             print('... Shape did not match ...')
+    
+
+    #######################
+    # Variables for model #
+    #######################
+
+    x = T.matrix('x')
+    y = T.ivector('y')
 
     ######################
     # BUILD ACTUAL MODEL #
     ######################
     print('... building the model')
 
-    layer0_input = x.reshape((batch_size, channels, image_shape[0], image_shape[0]))
+    layer0_input = x.reshape((minibatch_size, channels, image_shape[0], image_shape[0]))
 
 
     ######################
@@ -80,7 +87,7 @@ def evaluate_cnn(image_shape=[32],
     layer0 = ConvPoolLayer(
         rng,
         input=layer0_input,
-        image_shape=(batch_size, channels, image_shape[0], image_shape[0]),
+        image_shape=(minibatch_size, channels, image_shape[0], image_shape[0]),
         filter_shape=shapes[0],
         poolsize=(pools[0], pools[0]),
         activation=T.nnet.relu,
@@ -93,7 +100,7 @@ def evaluate_cnn(image_shape=[32],
     layer1 = ConvPoolLayer(
         rng,
         input=layer0.output,
-        image_shape=(batch_size, nkerns[0], image_shape[1], image_shape[1]),
+        image_shape=(minibatch_size, nkerns[0], image_shape[1], image_shape[1]),
         filter_shape=shapes[1],
         poolsize=(pools[1], pools[1]),
         activation=T.nnet.relu,
@@ -156,19 +163,96 @@ def evaluate_cnn(image_shape=[32],
         updates=updates
     )
 
-    """
-        Validation model definition here
-    """
 
-    """
-        Test model definition here
-    """
+    ######################
+    #     TEST AREA      #
+    ######################
+    # Test layer 0
+    layer0_test_input = x.reshape((minibatch_size, channels, image_shape[0], image_shape[0]))
+
+    # Test layer 0
+    layer0_test_output = convPoolLayerTest(
+        input=layer0_test_input,
+        image_shape=(minibatch_size, channels, image_shape[0], image_shape[0]),
+        filter_shape=shapes[0],
+        poolsize=(pools[0], pools[0]),
+        activation=T.nnet.relu,
+        W=layer0.params[0],
+        b=layer0.params[1]
+    )
+
+    # Test layer 1
+    layer1_test_output = convPoolLayerTest(
+        input=layer0_test_output,
+        image_shape=(minibatch_size, nkerns[0], image_shape[1], image_shape[1]),
+        filter_shape=shapes[1],
+        poolsize=(pools[1], pools[1]),
+        activation=T.nnet.relu,
+        W=layer1.params[0],
+        b=layer1.params[1]
+    )
+
+    # the test HiddenLayer
+    layer2_test_input = layer1_test_output.flatten(2)
+
+    # test fully-connected sigmoidal layer
+    layer2_test_output = hiddenLayerTest(
+        input=layer2_test_input,
+        activation=T.nnet.relu,
+        W=layer2.params[0],
+        b=layer2.params[1]        
+    )
+
+    # test the fully-connected sigmoidal layer
+    y_pred = logisticRegressionTest(
+        input=layer2_test_output,
+        W=layer3.params[0],
+        b=layer3.params[1]
+    )
+
+    # function to validation scores
+    validate_model = theano.function(
+        [x,y],
+        classificationErrors(y_pred, y)
+    )
+
+    # create a function to compute test scores
+    test_model = theano.function(
+        [x,y],
+        classificationErrors(y_pred, y)
+    )
 
 
+
+    #########################
+    # TRAIN CONFIGURATION   #
+    #########################
+
+    patience = 10000
+    patience_increase = 2
+
+    improvement_threshold = 0.995
+    momemtum_limit = 0.9
+
+    # Initialize training variables
+    epoch = 0
+    done_looping = False
+    minibatch_iteration = 0
+
+    best_validation_loss = np.inf
+    best_iter = 0
+    test_score = 0.
+    start_time = timeit.default_timer()
+    
+    # Initialize sample loader for loading train, val, test samples
     sampleLoader = SampleLoader()
 
-    epoch =0
-    done_looping = false
+    validation_frequency = min(sampleLoader.n_train_batches,patience//2)
+
+    ############
+    # TRAINING #
+    ############
+    print  "Training ..."
 
     while (epoch < n_epochs) and (not done_looping):
         sys.stdout.flush()
@@ -183,15 +267,58 @@ def evaluate_cnn(image_shape=[32],
             train_x,train_y = train_batch_data
             n_minibatches = len(train_batch_data)/minibatch_size
             for minibatch_index in range(n_minibatches):
+                
                 x = train_x[minibatch_index * minibatch_size: (minibatch_index + 1) * minibatch_size]
                 y = train_y[minibatch_index * minibatch_size: (minibatch_index + 1) * minibatch_size]
                 cost_minibatch = train_model(x,y)
 
-                """
-                    Validation logic needs to be added here
-                """
+                # Validate with a frequency of validation_frequency
+                if minibatch_iteration % validation_frequency == 0:
+                    validation_loss = get_validation_loss(sampleLoader,validate_model)
+                    # if we got the best validation score until now
+                    if this_validation_loss < best_validation_loss:
+                        #improve patience if loss improvement is good enough
+                        if this_validation_loss < best_validation_loss * improvement_threshold:
+                            patience = max(patience, iter * patience_increase)
+
+                        # save best validation score and iteration number
+                        best_validation_loss = this_validation_loss
+                        best_iter = iter
+                        """
+                            Check for overfitting here
+                        """
+                        # compute test loss
+                        test_loss = get_test_loss()
+                        if toSaveParameters:
+                            paramDataManager.saveData()                            
+
+                if patience <= minibatch_iteration:
+                    done_looping = True
+                    break
 
             train_batch_data = sampleLoader.loadNextTrainBatch()
+            minibatch_iteration += 1
+
+    end_time = timeit.default_timer()
+    print "Training complete."
+    print "Best Validation Score: ", best_validation_loss," obtained at ",best_iter," With test score ",test_score
+    print "Program ran for ",((end_time-start_time)/60),"m"
+    return (best_validation_loss,test_score,paramDataAddress)
+
+def get_validation_loss(sampleLoader,validate_model):
+    x_val,y_val = sampleLoader.getNextValBatch()
+    validation_losses = []
+    while val_batch is not None :
+        validation_losses += [validate_model(x_val,y_val)]
+    return np.mean(validation_losses)
+
+def get_test_loss(sampleLoader,test_model):
+    x_test,y_test = sampleLoader.getNextTestBatch()
+    test_losses = []
+    while test_batch is not None :
+        test_losses += [test_model(x_test, y_test)]
+    return np.mean(test_losses)
+
 
 def experiment(I=0, J=0, K=0, L=0, M=0, N=0):
 
