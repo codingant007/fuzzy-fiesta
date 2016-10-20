@@ -29,7 +29,7 @@ def evaluate_cnn(image_shape=[32],
                     learning_rate=0.1,
                     momentum=0.5,
                     n_epochs=2000,
-                    minibatch_size=64):
+                    minibatch_size=1024):
     
     rng = np.random.RandomState(12345)
 
@@ -156,11 +156,10 @@ def evaluate_cnn(image_shape=[32],
     updates = updates + [(param_i, param_i - velocity_i)
         for param_i, velocity_i in zip(params, velocity)]
 
-
     train_model = theano.function(
         [x,y],
         cost,
-        updates=updates
+        updates=updates,
     )
 
 
@@ -232,7 +231,7 @@ def evaluate_cnn(image_shape=[32],
     patience_increase = 2
 
     improvement_threshold = 0.995
-    momemtum_limit = 0.9
+    momentum_limit = 0.9
 
     # Initialize training variables
     epoch = 0
@@ -255,22 +254,28 @@ def evaluate_cnn(image_shape=[32],
     print  "Training ..."
 
     while (epoch < n_epochs) and (not done_looping):
-        sys.stdout.flush()
+        #sys.stdout.flush()
         epoch = epoch+1
         learning_rate = learning_rate*0.99
         momentum = momentum + (momentum_limit - momentum)/32
         print('Learning rate = %f, Momentum = %f' %(learning_rate, momentum))
 
         train_batch_data = sampleLoader.loadNextTrainBatch()
+        print train_batch_data[0].shape.eval()
 
         while train_batch_data is not None:
             train_x,train_y = train_batch_data
-            n_minibatches = len(train_batch_data)/minibatch_size
+            train_x = train_x.get_value()
+            train_y = train_y.eval()
+            n_minibatches = train_x.shape[0]/minibatch_size
+            print type(n_minibatches)
             for minibatch_index in range(n_minibatches):
-                
-                x = train_x[minibatch_index * minibatch_size: (minibatch_index + 1) * minibatch_size]
+                minibatch_iteration += 1
+                print "minibatch_iteration ",minibatch_iteration
+                x = train_x[minibatch_index * minibatch_size: (minibatch_index + 1) * minibatch_size].reshape((-1,train_x.shape[-1]))
                 y = train_y[minibatch_index * minibatch_size: (minibatch_index + 1) * minibatch_size]
                 cost_minibatch = train_model(x,y)
+                print cost_minibatch
 
                 # Validate with a frequency of validation_frequency
                 if minibatch_iteration % validation_frequency == 0:
@@ -285,19 +290,22 @@ def evaluate_cnn(image_shape=[32],
                         best_validation_loss = this_validation_loss
                         best_iter = iter
                         """
-                            Check for overfitting here
+                            Check for overfitting logic here
                         """
                         # compute test loss
                         test_loss = get_test_loss()
-                        if toSaveParameters:
-                            paramDataManager.saveData()                            
+                        print
+                        print "validation loss improved!"
+                        print
+                    if toSaveParameters:
+                        paramDataManager.saveData()                            
 
                 if patience <= minibatch_iteration:
                     done_looping = True
                     break
 
             train_batch_data = sampleLoader.loadNextTrainBatch()
-            minibatch_iteration += 1
+            
 
     end_time = timeit.default_timer()
     print "Training complete."
@@ -306,7 +314,7 @@ def evaluate_cnn(image_shape=[32],
     return (best_validation_loss,test_score,paramDataAddress)
 
 def get_validation_loss(sampleLoader,validate_model):
-    x_val,y_val = sampleLoader.getNextValBatch()
+    x_val,y_val = sampleLoader.loadNextValBatch()
     validation_losses = []
     while val_batch is not None :
         validation_losses += [validate_model(x_val,y_val)]
@@ -362,7 +370,7 @@ def experiment(I=0, J=0, K=0, L=0, M=0, N=0):
                                             learning_rate=0.01,
                                             momentum=0.5,
                                             n_epochs=2000,
-                                            minibatch_size=64)
+                                            minibatch_size=512)
 
                             print(costs)
                             output = open('data/costs', 'wb')

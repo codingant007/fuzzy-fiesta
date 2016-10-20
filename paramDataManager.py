@@ -37,7 +37,7 @@ class ParamDataManager:
    	def saveData(self, params, address=None):
    		if address == None:
    			address = getParamAddress()
-   		print "Saving parameters from " + address
+   		print "Saving parameters to " + address
    		for a in params:
    			b = a.get_value()
    			shapes = shapes + [b.shape]
