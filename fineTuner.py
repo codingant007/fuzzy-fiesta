@@ -128,6 +128,10 @@ def evaluate_cnn(image_shape=[32],
         b=paramData[1]
     )
 
+    p_y_pred = layer3.negative_log_likelihood(y)
+
+    cost = GroupVoteLoss(p_y_pred,)
+
     groupLoader = GroupLoader()
 
 

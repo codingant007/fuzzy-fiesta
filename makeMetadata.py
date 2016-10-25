@@ -57,11 +57,32 @@ def get_samples_from_groups(group_list):
 	return sample_list
 
 
+def filter_samples(sample_list, group_numbers):
+	return [ sample for sample in sample_list if sample[3] in group_numbers]
+
+
+def filter_groups(group_list, class_count, fraction):
+	class_set = set(map(lambda tup:tup[2], group_list))
+	classwise_list = [ [tup for tup in group_list if tup[2]==class_label and class_label<=class_count] for class_label in class_set]
+	filtered_group_list = []
+	for groups in classwise_list:
+		number_groups_in_class = int(len(groups)*fraction)
+		filtered_group_list += groups[:number_groups_in_class]
+	return filtered_group_list
+	
+
+
 def saveSamplesInfo(alldata_file="metadata/alldata.pkl",train_file="metadata/train.pkl",val_file="metadata/val.pkl",test_file="metadata/test.pkl", \
 					alldata_group_file="metadata/alldata_group.pkl",train_group_file="metadata/train_group.pkl",val_group_file="metadata/val_group.pkl",test_group_file="test_group.pkl"):
 
 	sample_list,group_info = getSamplesInfo()
 	group_list = group_info.values()
+
+	filtered_groups = filter_groups(group_list, 4 , 0.2)
+	group_numbers = set(map(lambda tup:tup[0],filtered_groups))
+
+	sample_list = filter_samples(sample_list,group_numbers)
+	group_list = filtered_groups
 
 	print "No of Groups: ",len(group_list)
 	

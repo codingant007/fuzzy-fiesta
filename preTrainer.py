@@ -51,7 +51,7 @@ def evaluate_cnn(image_shape=[32],
     toSaveParameters = True
     paramData = [None]*8
     if toLoadParameters:
-        paramData, shapeData = paramDataManager.loadData(paramDataAddress)
+        paramData, shapeData = paramDataManager.loadData()
         shapeMatched = True
         for i in range(len(shapes)):
             if(shapes[-i-1] != shapeData[2*i]):
@@ -247,7 +247,7 @@ def evaluate_cnn(image_shape=[32],
     sampleLoader = SampleLoader()
 
     validation_frequency = min(sampleLoader.n_train_batches,patience//2)
-
+    #validation_frequency = 10
     ############
     # TRAINING #
     ############
@@ -271,34 +271,36 @@ def evaluate_cnn(image_shape=[32],
             print type(n_minibatches)
             for minibatch_index in range(n_minibatches):
                 minibatch_iteration += 1
-                print "minibatch_iteration ",minibatch_iteration
                 x = train_x[minibatch_index * minibatch_size: (minibatch_index + 1) * minibatch_size].reshape((-1,train_x.shape[-1]))
                 y = train_y[minibatch_index * minibatch_size: (minibatch_index + 1) * minibatch_size]
+                print "minibatch_iteration ",minibatch_iteration
                 cost_minibatch = train_model(x,y)
                 print cost_minibatch
-
                 # Validate with a frequency of validation_frequency
-                if minibatch_iteration % validation_frequency == 0:
-                    validation_loss = get_validation_loss(sampleLoader,validate_model)
+                if minibatch_iteration % validation_frequency == 0 :
+                    validation_loss = get_validation_loss(sampleLoader,validate_model,minibatch_size)
                     # if we got the best validation score until now
-                    if this_validation_loss < best_validation_loss:
+                    print "validation_loss: ",validation_loss," validation_loss: ",best_validation_loss
+                    if validation_loss < best_validation_loss:
+
                         #improve patience if loss improvement is good enough
-                        if this_validation_loss < best_validation_loss * improvement_threshold:
-                            patience = max(patience, iter * patience_increase)
+                        if validation_loss < best_validation_loss * improvement_threshold:
+                            patience = max(patience, minibatch_iteration * patience_increase)
 
                         # save best validation score and iteration number
-                        best_validation_loss = this_validation_loss
-                        best_iter = iter
+                        best_validation_loss = validation_loss
+                        best_iter = minibatch_iteration
                         """
                             Check for overfitting logic here
                         """
                         # compute test loss
-                        test_loss = get_test_loss()
+                        test_loss = get_test_loss(sampleLoader,test_model,minibatch_size)
                         print
                         print "validation loss improved!"
                         print
-                    if toSaveParameters:
-                        paramDataManager.saveData()                            
+                        print "validation_loss: ",validation_loss," test_loss: ",test_loss
+                        if toSaveParameters:
+                            paramDataManager.saveData(params)
 
                 if patience <= minibatch_iteration:
                     done_looping = True
@@ -311,20 +313,44 @@ def evaluate_cnn(image_shape=[32],
     print "Training complete."
     print "Best Validation Score: ", best_validation_loss," obtained at ",best_iter," With test score ",test_score
     print "Program ran for ",((end_time-start_time)/60),"m"
-    return (best_validation_loss,test_score,paramDataAddress)
+    return (best_validation_loss,test_score,paramDataManager.getParamDataAddress())
 
-def get_validation_loss(sampleLoader,validate_model):
-    x_val,y_val = sampleLoader.loadNextValBatch()
-    validation_losses = []
+def get_validation_loss(sampleLoader,validate_model,minibatch_size):
+    print "n_val_batches: ",sampleLoader.n_val_batches
+    val_batch = sampleLoader.loadNextValBatch()
+    val_losses = []
     while val_batch is not None :
-        validation_losses += [validate_model(x_val,y_val)]
-    return np.mean(validation_losses)
+        x_val,y_val = val_batch
+        x_val = x_val.get_value()
+        y_val = y_val.eval()
+        for i in range(y_val.shape[0]/minibatch_size):
+            start_index = i*minibatch_size
+            end_index = (i+1)*minibatch_size
+            if end_index > y_val.shape[0]:
+                break
+            x = x_val[start_index:end_index].reshape((-1,x_val.shape[-1]))
+            y = y_val[start_index:end_index]
+            val_losses += [validate_model(x, y)]
+        val_batch = sampleLoader.loadNextValBatch()
+    print val_losses
+    return np.mean(val_losses)
 
-def get_test_loss(sampleLoader,test_model):
-    x_test,y_test = sampleLoader.getNextTestBatch()
+def get_test_loss(sampleLoader,test_model,minibatch_size):
+    test_batch = sampleLoader.loadNextTestBatch()
     test_losses = []
     while test_batch is not None :
-        test_losses += [test_model(x_test, y_test)]
+        x_test,y_test = test_batch
+        x_test = x_test.get_value()
+        y_test = y_test.eval()
+        for i in range(y_test.shape[0]/minibatch_size):
+            start_index = i*minibatch_size
+            end_index = (i+1)*minibatch_size
+            if end_index > y_test.shape[0]:
+                break
+            x = x_test[start_index:end_index].reshape((-1,x_test.shape[-1]))
+            y = y_test[start_index:end_index]
+            test_losses += [test_model(x, y)]
+        test_batch = sampleLoader.loadNextTestBatch()
     return np.mean(test_losses)
 
 
@@ -367,7 +393,7 @@ def experiment(I=0, J=0, K=0, L=0, M=0, N=0):
                                             outputs=26,
                                             pools=[f, f],
                                             dropouts=e,
-                                            learning_rate=0.01,
+                                            learning_rate=0.001,
                                             momentum=0.5,
                                             n_epochs=2000,
                                             minibatch_size=512)
